@@ -1,127 +1,118 @@
 package oop.inheritance;
 
-import java.time.LocalDateTime;
-
 import oop.inheritance.data.CommunicationType;
 import oop.inheritance.data.SupportedTerminal;
+import oop.inheritance.data.card.GenericCard;
+import oop.inheritance.data.interfaces.*;
+import oop.inheritance.data.terminals.TerminalFactory;
+import oop.inheritance.data.transactions.TransactionBuilder;
 import oop.library.ingenico.model.Card;
 import oop.library.ingenico.model.Transaction;
 import oop.library.ingenico.model.TransactionResponse;
-import oop.library.ingenico.services.*;
-import oop.library.v240m.VerifoneV240mDisplay;
+
+import java.time.LocalDateTime;
 
 public class Application {
 
-    private CommunicationType communicationType = CommunicationType.ETHERNET;
-    private SupportedTerminal supportedTerminal;
+    private final CommunicationType communicationType = CommunicationType.ETHERNET;
+
+    private final Terminal terminal;
 
     public Application(SupportedTerminal supportedTerminal) {
-        this.supportedTerminal = supportedTerminal;
+        terminal = TerminalFactory.getInstance(supportedTerminal);
     }
 
     public void showMenu() {
-        if (supportedTerminal == SupportedTerminal.INGENICO) {
-            IngenicoDisplay ingenicoDisplay = new IngenicoDisplay();
+        Display display = terminal.getDisplay();
 
-            ingenicoDisplay.showMessage(5, 5, "MENU");
-            ingenicoDisplay.showMessage(5, 10, "1. VENTA");
-            ingenicoDisplay.showMessage(5, 13, "2. DEVOLUCION");
-            ingenicoDisplay.showMessage(5, 16, "3. REPORTE");
-            ingenicoDisplay.showMessage(5, 23, "4. CONFIGURACION");
-        } else {
-            VerifoneV240mDisplay verifoneV240mDisplay = new VerifoneV240mDisplay();
-
-            verifoneV240mDisplay.print(5, 5, "MENU");
-            verifoneV240mDisplay.print(5, 10, "1. VENTA");
-            verifoneV240mDisplay.print(5, 13, "2. DEVOLUCION");
-            verifoneV240mDisplay.print(5, 16, "3. REPORTE");
-            verifoneV240mDisplay.print(5, 23, "4. CONFIGURACION");
-        }
-
+        display.displayText(5, 5, "MENU");
+        display.displayText(5, 10, "1. VENTA");
+        display.displayText(5, 13, "2. DEVOLUCION");
+        display.displayText(5, 16, "3. REPORTE");
+        display.displayText(5, 23, "4. CONFIGURACION");
     }
 
     public String readKey() {
-        IngenicoKeyboard ingenicoKeyboard = new IngenicoKeyboard();
-
-        return ingenicoKeyboard.getChar();
+        return terminal.getKeyboard().getChar();
     }
 
     public void doSale() {
-        IngenicoCardSwipper cardSwipper = new IngenicoCardSwipper();
-        IngenicoChipReader chipReader = new IngenicoChipReader();
-        IngenicoDisplay ingenicoDisplay = new IngenicoDisplay();
-        IngenicoKeyboard ingenicoKeyboard = new IngenicoKeyboard();
-        Card card;
+        Display display = terminal.getDisplay();
+        Keyboard keyboard = terminal.getKeyboard();
 
-        do {
-            card = cardSwipper.readCard();
-            if (card == null) {
-                card = chipReader.readCard();
+        CardProvider cardProvider = terminal.getCardProvider();
+
+        CardConsumer cardConsumer = new CardConsumer() {
+            @Override
+            public void consumeCard(GenericCard card) {
+                display.clearScreen();
+                display.displayText(5, 20, "Capture monto:");
+
+                String amount = keyboard.readLine(); //Amount with decimal point as string
+
+                Transaction transaction = new TransactionBuilder()
+                        .localDateTime(LocalDateTime.now())
+                        .algocard(card)
+                        .amountInCents(Integer.parseInt(amount.replace(".", "")))
+                        .build();
+
+                TransactionResponse response = sendSale(transaction);
+
+                if (response.isApproved()) {
+                    display.displayText(5, 20, "APROBADA");
+                    printReceipt(transaction, response.getHostReference());
+                } else {
+                    display.displayText(5, 20, "DENEGADA");
+                }
+
             }
-        } while (card == null);
+        };
+        cardProvider.readCard(cardConsumer);
 
-        ingenicoDisplay.clear();
-        ingenicoDisplay.showMessage(5, 20, "Capture monto:");
+        cardProvider = card -> {
+            GenericCard genericCard = null;
+            display.clearScreen();
+            display.displayText(5, 20, "Capture monto:");
 
-        String amount = ingenicoKeyboard.readLine(); //Amount with decimal point as string
+            String amount = keyboard.readLine(); //Amount with decimal point as string
 
-        Transaction transaction = new Transaction();
+            Transaction transaction = new TransactionBuilder()
+                    .localDateTime(LocalDateTime.now())
+                    .algocard(genericCard)
+                    .amountInCents(Integer.parseInt(amount.replace(".", "")))
+                    .build();
 
-        transaction.setLocalDateTime(LocalDateTime.now());
-        transaction.setCard(card);
-        transaction.setAmountInCents(Integer.parseInt(amount.replace(".", "")));
+            TransactionResponse response = sendSale(transaction);
 
-        TransactionResponse response = sendSale(transaction);
-
-        if (response.isApproved()) {
-            ingenicoDisplay.showMessage(5, 25, "APROBADA");
-            printReceipt(transaction, response.getHostReference());
-        } else {
-            ingenicoDisplay.showMessage(5, 25, "DENEGADA");
-        }
+            if (response.isApproved()) {
+                display.displayText(5, 20, "APROBADA");
+                printReceipt(transaction, response.getHostReference());
+            } else {
+                display.displayText(5, 20, "DENEGADA");
+            }
+        };
     }
 
     private void printReceipt(Transaction transaction, String hostReference) {
-        IngenicoPrinter ingenicoPrinter = new IngenicoPrinter();
         Card card = transaction.getCard();
+        Printer printer = terminal.getPrinter();
 
-        ingenicoPrinter.print(5, "APROBADA");
-        ingenicoPrinter.lineFeed();
-        ingenicoPrinter.print(5, card.getAccount());
-        ingenicoPrinter.lineFeed();
-        ingenicoPrinter.print(5, "" + transaction.getAmountInCents());
-        ingenicoPrinter.lineFeed();
-        ingenicoPrinter.print(5, "________________");
-
+        printer.printText(5, "APROBADA");
+        printer.lineFeed();
+        printer.printText(5, card.getAccount());
+        printer.lineFeed();
+        printer.printText(5, "" + transaction.getAmountInCents());
+        printer.lineFeed();
+        printer.printText(5, "________________");
     }
 
     private TransactionResponse sendSale(Transaction transaction) {
-        IngenicoEthernet ethernet = new IngenicoEthernet();
-        IngenicoModem modem = new IngenicoModem();
-        IngenicoGPS gps = new IngenicoGPS();
-        TransactionResponse transactionResponse = null;
+        Communication communication = terminal.getCommunication(communicationType);
 
-        switch (communicationType) {
-            case ETHERNET:
-                ethernet.open();
-                ethernet.send(transaction);
-                transactionResponse = ethernet.receive();
-                ethernet.close();
-                break;
-            case GPS:
-                gps.open();
-                gps.send(transaction);
-                transactionResponse = gps.receive();
-                gps.close();
-                break;
-            case MODEM:
-                modem.open();
-                modem.send(transaction);
-                transactionResponse = modem.receive();
-                modem.close();
-                break;
-        }
-
+        communication.open();
+        communication.send(transaction);
+        TransactionResponse transactionResponse = communication.receive();
+        communication.close();
         return transactionResponse;
     }
 
@@ -135,14 +126,6 @@ public class Application {
     }
 
     public void clearScreen() {
-        if (supportedTerminal == SupportedTerminal.INGENICO) {
-            IngenicoDisplay ingenicoDisplay = new IngenicoDisplay();
-
-            ingenicoDisplay.clear();
-        } else {
-            VerifoneV240mDisplay verifoneV240mDisplay = new VerifoneV240mDisplay();
-
-            verifoneV240mDisplay.clear();
-        }
+        terminal.getDisplay().clearScreen();
     }
 }

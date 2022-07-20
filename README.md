@@ -15,3 +15,4 @@ cardProvider.readCard(card -> {
 
 ```
 El CardProvider es un objeto que debe ser diferente por modelo de terminal para que pueda proveer la información de la tarjeta por cualquier método que soporte ese modelo de terminal (chip, banda, rfid) sin que la clase Application necesite saberlo.
+Referencia: https://sourcemaking.com/design_patterns 
